@@ -21,11 +21,11 @@ const {
 // All routes require auth
 router.use(protect)
 
-router.post('/generate', generateLimiter, generateValidator, validate, generate)
-router.get('/history', historyQueryValidator, validate, getHistory)
+router.post('/generate', generateLimiter, ...generateValidator, validate, generate)
+router.get('/history', ...historyQueryValidator, validate, getHistory)
 router.get('/stats', getStats)
-router.get('/:id', contentIdValidator, validate, getContentById)
-router.delete('/:id', contentIdValidator, validate, deleteContent)
-router.patch('/:id/favorite', contentIdValidator, validate, toggleFavorite)
+router.get('/:id', ...contentIdValidator, validate, getContentById)
+router.delete('/:id', ...contentIdValidator, validate, deleteContent)
+router.patch('/:id/favorite', ...contentIdValidator, validate, toggleFavorite)
 
 module.exports = router

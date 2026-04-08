@@ -27,12 +27,12 @@ const addCreditsValidator = [
 router.use(protect)
 
 router.get('/profile', getProfile)
-router.patch('/profile', updateProfileValidator, validate, updateProfile)
+router.patch('/profile', ...updateProfileValidator, validate, updateProfile)
 router.get('/credits', getCredits)
 router.get('/dashboard-stats', getDashboardStats)
 
 // Admin routes
-router.post('/add-credits', authorize('admin'), addCreditsValidator, validate, adminAddCredits)
+router.post('/add-credits', authorize('admin'), ...addCreditsValidator, validate, adminAddCredits)
 router.get('/all', authorize('admin'), getAllUsers)
 
 module.exports = router

@@ -12,12 +12,12 @@ const {
 } = require('../validators/auth.validators')
 
 // Public
-router.post('/register', authLimiter, registerValidator, validate, register)
-router.post('/login', authLimiter, loginValidator, validate, login)
+router.post('/register', authLimiter, ...registerValidator, validate, register)
+router.post('/login', authLimiter, ...loginValidator, validate, login)
 router.post('/logout', logout)
 
 // Protected
 router.get('/me', protect, getMe)
-router.patch('/change-password', protect, changePasswordValidator, validate, changePassword)
+router.patch('/change-password', protect, ...changePasswordValidator, validate, changePassword)
 
 module.exports = router
