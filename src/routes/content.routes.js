@@ -3,6 +3,7 @@ const router = express.Router()
 
 const {
   generate,
+  generateStream,
   getHistory,
   getContentById,
   deleteContent,
@@ -22,6 +23,7 @@ const {
 router.use(protect)
 
 router.post('/generate', generateLimiter, ...generateValidator, validate, generate)
+router.post('/generate-stream', generateLimiter, ...generateValidator, validate, generateStream)
 router.get('/history', ...historyQueryValidator, validate, getHistory)
 router.get('/stats', getStats)
 router.get('/:id', ...contentIdValidator, validate, getContentById)

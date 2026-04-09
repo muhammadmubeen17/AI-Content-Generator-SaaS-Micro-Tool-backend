@@ -1,6 +1,6 @@
 const Content = require('../models/Content')
 const Template = require('../models/Template')
-const { generateContent: aiGenerate } = require('../services/aiService')
+const { generateContent: aiGenerate, streamContent: aiStream } = require('../services/aiService')
 const { calculateCost, deductCredits } = require('../services/creditService')
 const { sendSuccess, sendPaginatedResponse } = require('../utils/response')
 const { createError, asyncHandler } = require('../utils/error')
@@ -83,6 +83,87 @@ const generate = asyncHandler(async (req, res, next) => {
     'Content generated successfully',
     201
   )
+})
+
+/**
+ * POST /api/content/generate-stream
+ * Streams the AI response using Server-Sent Events (SSE).
+ * Validation errors are returned as normal HTTP errors (before SSE starts).
+ * Runtime errors during streaming are sent as SSE { error } events.
+ */
+const generateStream = asyncHandler(async (req, res, next) => {
+  const { contentType, tone, length, prompt, templateId } = req.body
+  const userId = req.user._id
+
+  // ── Pre-stream validation (can still return HTTP errors here) ────────────
+  if (!req.user.isEmailVerified) {
+    return next(createError(403, 'Please verify your email address before generating content.'))
+  }
+
+  const cost = calculateCost(length)
+  if (!req.user.hasEnoughCredits(cost)) {
+    return next(createError(402, `Insufficient credits. Need ${cost}, have ${req.user.credits}.`))
+  }
+
+  let template = null
+  if (templateId) {
+    template = await Template.findById(templateId)
+    if (!template) return next(createError(404, 'Template not found'))
+  }
+
+  // ── Open SSE connection ───────────────────────────────────────────────────
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache')
+  res.setHeader('Connection', 'keep-alive')
+  res.setHeader('X-Accel-Buffering', 'no') // disable nginx buffering if present
+  res.flushHeaders()
+
+  const send = (data) => {
+    try { res.write(`data: ${JSON.stringify(data)}\n\n`) } catch { /* client disconnected */ }
+  }
+
+  // Close gracefully if the client disconnects mid-stream
+  let aborted = false
+  req.on('close', () => { aborted = true })
+
+  try {
+    const { output, tokensUsed, source } = await aiStream(
+      { contentType, tone, length, prompt },
+      (chunk) => { if (!aborted) send({ chunk }) }
+    )
+
+    if (aborted) { res.end(); return }
+
+    // ── Post-stream: persist to DB and deduct credits ─────────────────────
+    await deductCredits(userId, cost)
+
+    const content = await Content.create({
+      userId,
+      type: contentType,
+      tone,
+      length,
+      prompt,
+      output,
+      tokensUsed,
+      creditsDeducted: cost,
+      templateId: template?._id || null,
+      metadata: { source },
+    })
+
+    if (template) await template.incrementUsage()
+
+    // ── Send completion metadata ──────────────────────────────────────────
+    send({
+      done: true,
+      contentId: content._id,
+      wordCount: content.wordCount,
+      creditsRemaining: req.user.credits - cost,
+    })
+  } catch (err) {
+    send({ error: err.message || 'Generation failed. Please try again.' })
+  }
+
+  res.end()
 })
 
 /**
@@ -171,4 +252,4 @@ const getStats = asyncHandler(async (req, res) => {
   sendSuccess(res, { stats, total: totalCount }, 'Stats retrieved')
 })
 
-module.exports = { generate, getHistory, getContentById, deleteContent, toggleFavorite, getStats }
+module.exports = { generate, generateStream, getHistory, getContentById, deleteContent, toggleFavorite, getStats }

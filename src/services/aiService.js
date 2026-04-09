@@ -405,7 +405,7 @@ Designed for those who refuse to settle, this product delivers on every promise.
 Add to cart today and experience the premium difference. Free shipping on orders over $50 • 30-day hassle-free returns.`,
 }
 
-// ─── Main generate function ───────────────────────────────────────────────────
+// ─── Non-streaming generate (kept for backwards compat) ──────────────────────
 
 const generateContent = async ({ contentType, tone, length, prompt }) => {
   const gemini = getGemini()
@@ -415,23 +415,63 @@ const generateContent = async ({ contentType, tone, length, prompt }) => {
       const fullPrompt = buildPrompt({ contentType, tone, length, prompt })
       const result = await gemini.generateContent(fullPrompt)
       const output = result.response.text()
-
-      // Gemini doesn't return token counts on flash model reliably — estimate
-      const tokensUsed = output.split(/\s+/).length * 1.3
-
-      return { output, tokensUsed: Math.round(tokensUsed), source: 'gemini' }
+      const tokensUsed = Math.round(output.split(/\s+/).length * 1.3)
+      return { output, tokensUsed, source: 'gemini' }
     } catch (err) {
       console.warn('⚠️  Gemini call failed, falling back to mock:', err.message)
     }
   }
 
-  // Mock fallback — works with no API key
-  await new Promise((r) => setTimeout(r, 600)) // simulate latency
+  await new Promise((r) => setTimeout(r, 600))
+  const mockFn = MOCK_OUTPUTS[contentType] || MOCK_OUTPUTS.blog
+  const output = mockFn(prompt)
+  const tokensUsed = LENGTH_TOKENS[length] || 400
+  return { output, tokensUsed, source: 'mock' }
+}
+
+// ─── Streaming generate ───────────────────────────────────────────────────────
+// sendChunk(text) is called for each piece of content as it arrives.
+// Returns { output, tokensUsed, source } when the full response is complete.
+
+const streamContent = async ({ contentType, tone, length, prompt }, sendChunk) => {
+  const gemini = getGemini()
+
+  if (gemini) {
+    try {
+      const fullPrompt = buildPrompt({ contentType, tone, length, prompt })
+      const result = await gemini.generateContentStream(fullPrompt)
+
+      let fullText = ''
+      for await (const chunk of result.stream) {
+        const text = chunk.text()
+        if (text) {
+          fullText += text
+          sendChunk(text)
+        }
+      }
+
+      const tokensUsed = Math.round(fullText.split(/\s+/).length * 1.3)
+      return { output: fullText, tokensUsed, source: 'gemini' }
+    } catch (err) {
+      console.warn('⚠️  Gemini stream failed, falling back to mock:', err.message)
+    }
+  }
+
+  // Mock fallback — simulate streaming by emitting words in small bursts
+  await new Promise((r) => setTimeout(r, 250))
   const mockFn = MOCK_OUTPUTS[contentType] || MOCK_OUTPUTS.blog
   const output = mockFn(prompt)
   const tokensUsed = LENGTH_TOKENS[length] || 400
 
+  const words = output.split(' ')
+  const CHUNK_SIZE = 4
+  for (let i = 0; i < words.length; i += CHUNK_SIZE) {
+    const chunk = words.slice(i, i + CHUNK_SIZE).join(' ') + (i + CHUNK_SIZE < words.length ? ' ' : '')
+    await new Promise((r) => setTimeout(r, 35))
+    sendChunk(chunk)
+  }
+
   return { output, tokensUsed, source: 'mock' }
 }
 
-module.exports = { generateContent }
+module.exports = { generateContent, streamContent }
