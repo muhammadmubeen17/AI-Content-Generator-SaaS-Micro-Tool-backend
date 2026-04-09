@@ -11,7 +11,7 @@ const contentSchema = new mongoose.Schema(
     type: {
       type: String,
       required: true,
-      enum: ['blog', 'ad_copy', 'proposal', 'email', 'social', 'product'],
+      enum: ['blog', 'ad_copy', 'proposal', 'email', 'social', 'product', 'youtube', 'upwork', 'fiverr_gig', 'linkedin'],
     },
     tone: {
       type: String,
