@@ -1,8 +1,8 @@
 const Transaction = require('../models/Transaction')
 const CreditLedger = require('../models/CreditLedger')
 const User = require('../models/User')
-const { createCheckoutSession, createCreditPackCheckout, constructWebhookEvent, cancelSubscription } = require('../services/stripeService')
-const { applyPlan, purchaseTopUp } = require('../services/creditService')
+const { createCheckoutSession, createCreditPackCheckout, constructWebhookEvent, cancelSubscription, renewSubscription, createPortalSession } = require('../services/stripeService')
+const { applyPlan, purchaseTopUp, recordLedger } = require('../services/creditService')
 const { sendSuccess } = require('../utils/response')
 const { createError, asyncHandler } = require('../utils/error')
 const { PLANS, CREDIT_PACKS } = require('../config/constants')
@@ -85,7 +85,7 @@ const createSession = asyncHandler(async (req, res, next) => {
 
 /**
  * POST /api/billing/downgrade
- * Downgrade from a paid plan to free
+ * Schedule cancellation — user keeps credits until plan expires
  */
 const downgrade = asyncHandler(async (req, res, next) => {
   const user = await User.findById(req.user._id)
@@ -95,41 +95,118 @@ const downgrade = asyncHandler(async (req, res, next) => {
     return next(createError(400, 'You are already on the free plan'))
   }
 
-  const previousPlan = user.plan
-  const previousCredits = user.credits
+  if (user.subscriptionStatus === 'cancelling') {
+    return next(createError(400, 'Your plan is already scheduled for cancellation'))
+  }
 
-  // Cancel Stripe subscription if exists
+  // Cancel at period end in Stripe (user keeps access until then)
+  let periodEnd = null
   if (user.subscriptionId) {
     try {
-      await cancelSubscription(user.subscriptionId)
+      const sub = await cancelSubscription(user.subscriptionId)
+      periodEnd = sub.current_period_end ? new Date(sub.current_period_end * 1000) : null
     } catch (err) {
       console.log(`[Downgrade] Stripe cancel skipped: ${err.message}`)
     }
   }
 
-  // Apply free plan (credits will be capped)
-  const updatedUser = await applyPlan(user._id, 'free')
+  // If no Stripe period end, use creditsResetAt as fallback
+  const expiresAt = periodEnd || user.creditsResetAt || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
 
-  // Record downgrade transaction
+  // Mark as cancelling — credits stay, plan stays until expiry
+  user.subscriptionStatus = 'cancelling'
+  user.planExpiresAt = expiresAt
+  await user.save()
+
+  // Record ledger
+  await recordLedger({
+    userId: user._id,
+    type: 'plan_downgrade',
+    amount: 0,
+    balanceAfter: user.credits,
+    description: `Plan cancellation scheduled. Access until ${expiresAt.toLocaleDateString()}.`,
+    metadata: { plan: user.plan, expiresAt },
+  })
+
+  // Record transaction
   await Transaction.create({
     userId: user._id,
     amount: 0,
-    plan: 'free',
-    previousPlan,
+    plan: user.plan,
+    previousPlan: user.plan,
     creditsAdded: 0,
     status: 'completed',
     type: 'subscription',
-    metadata: {
-      action: 'downgrade',
-      previousCredits,
-      newCredits: updatedUser.credits,
-    },
+    metadata: { action: 'cancel_scheduled', expiresAt },
   })
 
   sendSuccess(res, {
-    user: updatedUser.toPublicJSON(),
-    message: `Downgraded from ${previousPlan} to free. Credits capped at ${updatedUser.credits}.`,
-  }, 'Plan downgraded')
+    user: user.toPublicJSON(),
+    message: `Plan will be downgraded to Free after ${expiresAt.toLocaleDateString()}. You keep all your credits until then.`,
+  }, 'Cancellation scheduled')
+})
+
+/**
+ * POST /api/billing/renew
+ * Undo a scheduled cancellation — keep the current plan
+ */
+const renew = asyncHandler(async (req, res, next) => {
+  const user = await User.findById(req.user._id)
+  if (!user) return next(createError(404, 'User not found'))
+
+  if (user.subscriptionStatus !== 'cancelling') {
+    return next(createError(400, 'No pending cancellation to revert'))
+  }
+
+  // Re-activate in Stripe
+  if (user.subscriptionId) {
+    try {
+      await renewSubscription(user.subscriptionId)
+    } catch (err) {
+      console.log(`[Renew] Stripe renew skipped: ${err.message}`)
+    }
+  }
+
+  user.subscriptionStatus = 'active'
+  user.planExpiresAt = null
+  await user.save()
+
+  await recordLedger({
+    userId: user._id,
+    type: 'plan_upgrade',
+    amount: 0,
+    balanceAfter: user.credits,
+    description: `Cancellation reversed. ${user.plan} plan renewed.`,
+    metadata: { plan: user.plan },
+  })
+
+  sendSuccess(res, {
+    user: user.toPublicJSON(),
+    message: `Great! Your ${user.plan} plan has been renewed.`,
+  }, 'Plan renewed')
+})
+
+/**
+ * POST /api/billing/portal-session
+ * Create a Stripe Customer Portal session for managing payment/invoices
+ */
+const portalSession = asyncHandler(async (req, res, next) => {
+  const user = await User.findById(req.user._id)
+  if (!user) return next(createError(404, 'User not found'))
+
+  if (!user.stripeCustomerId) {
+    return next(createError(400, 'No billing account found. Please subscribe to a plan first.'))
+  }
+
+  try {
+    const session = await createPortalSession(
+      user.stripeCustomerId,
+      `${process.env.FRONTEND_URL}/billing`
+    )
+    sendSuccess(res, { url: session.url }, 'Portal session created')
+  } catch (err) {
+    return next(createError(500, `Could not open billing portal: ${err.message}`))
+  }
 })
 
 /**
@@ -370,6 +447,8 @@ const getTransactions = asyncHandler(async (req, res) => {
 module.exports = {
   createSession,
   downgrade,
+  renew,
+  portalSession,
   purchaseCredits,
   getCreditHistory,
   handleWebhook,

@@ -9,11 +9,6 @@ const PLANS = {
     credits: parseInt(process.env.PRO_CREDITS) || 200,
     price: 29,
   },
-  premium: {
-    name: 'Premium',
-    credits: parseInt(process.env.PREMIUM_CREDITS) || 1000,
-    price: 79,
-  },
 }
 
 const CREDIT_COSTS = {

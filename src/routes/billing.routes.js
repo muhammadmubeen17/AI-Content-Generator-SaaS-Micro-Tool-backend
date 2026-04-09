@@ -4,6 +4,8 @@ const router = express.Router()
 const {
   createSession,
   downgrade,
+  renew,
+  portalSession,
   purchaseCredits,
   getCreditHistory,
   handleWebhook,
@@ -16,6 +18,8 @@ const { protect } = require('../middleware/auth')
 
 router.post('/create-checkout-session', protect, createSession)
 router.post('/downgrade', protect, downgrade)
+router.post('/renew', protect, renew)
+router.post('/portal-session', protect, portalSession)
 router.post('/purchase-credits', protect, purchaseCredits)
 router.get('/credit-history', protect, getCreditHistory)
 router.get('/transactions', protect, getTransactions)

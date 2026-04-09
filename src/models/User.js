@@ -54,7 +54,7 @@ const userSchema = new mongoose.Schema(
     },
     subscriptionStatus: {
       type: String,
-      enum: ['active', 'inactive', 'cancelled', 'past_due'],
+      enum: ['active', 'inactive', 'cancelling', 'cancelled', 'past_due'],
       default: 'inactive',
     },
     creditsResetAt: {
@@ -64,6 +64,10 @@ const userSchema = new mongoose.Schema(
         d.setMonth(d.getMonth() + 1)
         return d
       },
+    },
+    planExpiresAt: {
+      type: Date,
+      default: null,
     },
     isActive: {
       type: Boolean,
@@ -127,6 +131,7 @@ userSchema.methods.toPublicJSON = function () {
     totalCredits: this.totalCredits,
     creditsUsed: this.creditsUsed,
     creditsResetAt: this.creditsResetAt,
+    planExpiresAt: this.planExpiresAt,
     subscriptionStatus: this.subscriptionStatus,
     createdAt: this.createdAt,
   }

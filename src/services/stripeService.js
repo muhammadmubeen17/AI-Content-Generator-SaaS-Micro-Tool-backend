@@ -120,10 +120,38 @@ const retrieveSession = (sessionId) => {
 }
 
 /**
- * Cancel a subscription
+ * Cancel a subscription at end of billing period (user keeps access until then)
  */
 const cancelSubscription = (subscriptionId) => {
+  return stripe.subscriptions.update(subscriptionId, {
+    cancel_at_period_end: true,
+  })
+}
+
+/**
+ * Cancel a subscription immediately (for webhook/admin use)
+ */
+const cancelSubscriptionImmediately = (subscriptionId) => {
   return stripe.subscriptions.cancel(subscriptionId)
+}
+
+/**
+ * Renew (undo cancellation) — remove cancel_at_period_end
+ */
+const renewSubscription = (subscriptionId) => {
+  return stripe.subscriptions.update(subscriptionId, {
+    cancel_at_period_end: false,
+  })
+}
+
+/**
+ * Create a Stripe Customer Portal session for managing payment methods / invoices
+ */
+const createPortalSession = async (customerId, returnUrl) => {
+  return stripe.billingPortal.sessions.create({
+    customer: customerId,
+    return_url: returnUrl || `${process.env.FRONTEND_URL}/billing`,
+  })
 }
 
 module.exports = {
@@ -134,4 +162,7 @@ module.exports = {
   constructWebhookEvent,
   retrieveSession,
   cancelSubscription,
+  cancelSubscriptionImmediately,
+  renewSubscription,
+  createPortalSession,
 }
