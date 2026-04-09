@@ -1,9 +1,19 @@
+const crypto = require('crypto')
 const User = require('../models/User')
 const { sendTokenResponse } = require('../utils/jwt')
 const { sendSuccess } = require('../utils/response')
 const { createError, asyncHandler } = require('../utils/error')
 const { PLANS } = require('../config/constants')
 const { recordLedger } = require('../services/creditService')
+const { sendVerificationEmail } = require('../services/emailService')
+
+// ─── Helper: generate a secure verification token ─────────────────────────────
+const createVerificationToken = () => {
+  const rawToken = crypto.randomBytes(32).toString('hex')
+  const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex')
+  const expires = new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
+  return { rawToken, hashedToken, expires }
+}
 
 /**
  * POST /api/auth/register
@@ -20,6 +30,9 @@ const register = asyncHandler(async (req, res, next) => {
   const nextReset = new Date()
   nextReset.setDate(nextReset.getDate() + 30)
 
+  // Generate email verification token
+  const { rawToken, hashedToken, expires } = createVerificationToken()
+
   const user = await User.create({
     name,
     email,
@@ -28,6 +41,9 @@ const register = asyncHandler(async (req, res, next) => {
     credits: PLANS.free.credits,
     totalCredits: PLANS.free.credits,
     creditsResetAt: nextReset,
+    isEmailVerified: false,
+    emailVerificationToken: hashedToken,
+    emailVerificationExpires: expires,
   })
 
   // Record initial free credits in the ledger
@@ -40,7 +56,56 @@ const register = asyncHandler(async (req, res, next) => {
     metadata: { planId: 'free', event: 'registration' },
   })
 
-  sendTokenResponse(user, 201, res, 'Account created successfully')
+  // Send verification email (non-blocking — don't fail registration if email fails)
+  sendVerificationEmail({ name: user.name, email: user.email, token: rawToken }).catch(
+    (err) => console.error('Failed to send verification email:', err.message)
+  )
+
+  sendTokenResponse(user, 201, res, 'Account created! Please check your email to verify your account.')
+})
+
+/**
+ * GET /api/auth/verify-email/:token
+ */
+const verifyEmail = asyncHandler(async (req, res, next) => {
+  const { token } = req.params
+  const hashedToken = crypto.createHash('sha256').update(token).digest('hex')
+
+  const user = await User.findOne({
+    emailVerificationToken: hashedToken,
+    emailVerificationExpires: { $gt: Date.now() },
+  }).select('+emailVerificationToken +emailVerificationExpires')
+
+  if (!user) {
+    return next(createError(400, 'Verification link is invalid or has expired. Please request a new one.'))
+  }
+
+  user.isEmailVerified = true
+  user.emailVerificationToken = undefined
+  user.emailVerificationExpires = undefined
+  await user.save({ validateBeforeSave: false })
+
+  sendTokenResponse(user, 200, res, 'Email verified successfully! Welcome to ContentAI.')
+})
+
+/**
+ * POST /api/auth/resend-verification
+ */
+const resendVerification = asyncHandler(async (req, res, next) => {
+  if (req.user.isEmailVerified) {
+    return next(createError(400, 'Your email address is already verified.'))
+  }
+
+  const { rawToken, hashedToken, expires } = createVerificationToken()
+
+  await User.findByIdAndUpdate(req.user._id, {
+    emailVerificationToken: hashedToken,
+    emailVerificationExpires: expires,
+  })
+
+  await sendVerificationEmail({ name: req.user.name, email: req.user.email, token: rawToken })
+
+  sendSuccess(res, {}, 'Verification email sent. Please check your inbox.')
 })
 
 /**
@@ -104,4 +169,4 @@ const changePassword = asyncHandler(async (req, res, next) => {
   sendTokenResponse(user, 200, res, 'Password changed successfully')
 })
 
-module.exports = { register, login, getMe, logout, changePassword }
+module.exports = { register, login, getMe, logout, changePassword, verifyEmail, resendVerification }

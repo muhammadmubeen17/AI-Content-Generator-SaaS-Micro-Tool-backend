@@ -12,7 +12,12 @@ const generate = asyncHandler(async (req, res, next) => {
   const { contentType, tone, length, prompt, templateId } = req.body
   const userId = req.user._id
 
-  // 1. Calculate cost and verify credits
+  // 1. Require verified email
+  if (!req.user.isEmailVerified) {
+    return next(createError(403, 'Please verify your email address before generating content.'))
+  }
+
+  // 2. Calculate cost and verify credits
   const cost = calculateCost(length)
   if (!req.user.hasEnoughCredits(cost)) {
     return next(
@@ -20,7 +25,7 @@ const generate = asyncHandler(async (req, res, next) => {
     )
   }
 
-  // 2. Resolve template if provided
+  // 3. Resolve template if provided
   let template = null
   if (templateId) {
     template = await Template.findById(templateId)

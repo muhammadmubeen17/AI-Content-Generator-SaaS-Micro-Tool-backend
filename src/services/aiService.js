@@ -36,6 +36,32 @@ const buildPrompt = ({ contentType, tone, length, prompt }) => {
     email: `Write a professional email with a subject line suggestion, greeting, concise body, and professional closing.`,
     social: `Write an engaging social media post with relevant emojis and hashtags at the end.`,
     product: `Write a compelling product description with a headline, key features as bullet points, benefits, and a call-to-action.`,
+    youtube: `Write a YouTube content optimization package with these exact sections:
+1. TITLE OPTIONS: 5 SEO-optimized, click-worthy title variations (use numbers, power words, curiosity gaps)
+2. DESCRIPTION: Full video description (300-400 words) with an intro hook, timestamps placeholder section, links placeholder, and a subscribe CTA
+3. TAGS: 15-20 comma-separated SEO-relevant tags`,
+    upwork: `Write a compelling Upwork proposal that stands out. Include these sections:
+1. OPENING HOOK: Personalized first paragraph showing you read and understood the job post
+2. SOLUTION APPROACH: 3-4 step methodology for tackling the project
+3. RELEVANT EXPERIENCE: Specific skills, metrics, and results from similar work
+4. CALL TO ACTION: Confident, clear next step
+Keep it under 280 words. Be specific and confident, not generic.`,
+    fiverr_gig: `Write a complete, optimized Fiverr gig listing with these exact sections:
+1. GIG TITLE (max 80 characters, starts with "I will", SEO-optimized)
+2. GIG DESCRIPTION (800-1000 characters, benefit-focused, uses buyer language)
+3. PACKAGES:
+   BASIC - entry-level, lower price, shorter delivery (list 4 inclusions)
+   STANDARD - most popular, moderate price (list 5 inclusions, mark as "Most Popular")
+   PREMIUM - everything included, highest price (list 6 inclusions)
+   For each: name, suggested price ($), delivery days, inclusions as bullet points
+4. TAGS: 5 relevant comma-separated tags (single or two-word phrases)
+5. FAQ: 3 common buyer questions with short, reassuring answers`,
+    linkedin: `Write a high-performing LinkedIn post optimized for engagement. Structure:
+1. HOOK: First 1-2 lines must stop the scroll (use bold claims, surprising stats, or direct questions — no "I'm excited to share")
+2. BODY: Value-packed content with short paragraphs (1-3 lines max), line breaks between paragraphs, use → or numbers for lists
+3. CTA: Specific question inviting comments or a share prompt
+4. HASHTAGS: 4-5 relevant hashtags on the last line
+Keep total length 150-280 words. Conversational, not corporate.`,
   }
 
   const instruction = typeInstructions[contentType] || typeInstructions.blog
@@ -183,6 +209,173 @@ Fine-tuning based on data and complete knowledge transfer.
 3. Kick-off meeting with your team
 
 We're excited about the opportunity to work together. Please don't hesitate to reach out with any questions.`,
+
+  youtube: (prompt) => `**TITLE OPTIONS**
+1. ${prompt.split('\n')[0]?.replace('Video Topic: ', '').slice(0, 50)} (You Need to See This)
+2. I Tested Every Method For ${prompt.split('\n')[0]?.replace('Video Topic: ', '').slice(0, 40)} — Here's What Actually Works
+3. The Truth About ${prompt.split('\n')[0]?.replace('Video Topic: ', '').slice(0, 45)} Nobody Tells You
+4. Stop Doing This If You Want ${prompt.split('\n')[0]?.replace('Video Topic: ', '').slice(0, 35)} (Do This Instead)
+5. How I ${prompt.split('\n')[0]?.replace('Video Topic: ', '').slice(0, 50)} in 30 Days
+
+---
+
+**DESCRIPTION**
+🔥 In this video, I'm breaking down everything you need to know about ${prompt.split('\n')[0]?.replace('Video Topic: ', '').slice(0, 60)}.
+
+Whether you're just starting out or looking to level up, this is the most comprehensive breakdown you'll find — and I'm holding nothing back.
+
+⏰ TIMESTAMPS:
+00:00 - Introduction & What You'll Learn
+02:15 - Common Mistakes to Avoid
+05:30 - Step-by-Step Breakdown
+10:45 - Advanced Strategies
+15:20 - Real Results & Case Studies
+18:00 - Action Plan & Next Steps
+
+📌 RESOURCES MENTIONED:
+→ [Tool/Resource 1] - [Link]
+→ [Tool/Resource 2] - [Link]
+→ Free guide: [Link]
+
+👇 DROP A COMMENT: What's your biggest challenge with this topic? I read every reply.
+
+🔔 Subscribe + hit the bell so you never miss a video: [Channel Link]
+
+📸 Let's connect:
+→ Instagram: @YourHandle
+→ Twitter/X: @YourHandle
+→ Newsletter: [Link]
+
+---
+
+**TAGS**
+${prompt.split('\n')[0]?.replace('Video Topic: ', '').split(' ').slice(0, 3).join(', ')}, how to, tutorial, step by step, beginner guide, tips and tricks, 2024, best method, complete guide, results, strategy, growth, productivity, success, real talk`,
+
+  upwork: (prompt) => `Hi there,
+
+I noticed you're looking for help with ${prompt.split('\n')[0]?.replace('Job Title: ', '').slice(0, 60)} — this is exactly the type of project I specialize in, and I'd love to discuss how I can deliver exactly what you need.
+
+**My Approach:**
+→ Discovery call to fully align on your requirements and success criteria
+→ Detailed project plan with milestones and regular progress updates
+→ Agile development with your feedback built into every phase
+→ Thorough testing before final delivery + post-launch support
+
+**Why I'm the right fit:**
+I've completed 50+ similar projects with consistent 5-star reviews. My clients specifically mention my communication, attention to detail, and ability to deliver on time — every time.
+
+Recent example: I helped a similar client cut their project delivery time by 40% while staying under budget. I can share the case study on our call.
+
+I'm available to start immediately and can realistically deliver this within [timeline based on scope].
+
+Would you be open to a quick 15-minute call this week to see if we're a good fit? I have a few questions that would help me give you a more accurate proposal.
+
+Looking forward to hearing from you,
+[Your Name]
+
+P.S. My full portfolio is on my profile — happy to share relevant code samples or past deliverables on request.`,
+
+  fiverr_gig: (prompt) => {
+    const service = prompt.split('\n')[0]?.replace('Service: ', '') || 'professional service'
+    return `**GIG TITLE**
+I will build a professional ${service.slice(0, 55)} for your business
+
+---
+
+**GIG DESCRIPTION**
+Are you looking for a professional, results-driven ${service} that actually delivers? You've come to the right place.
+
+I specialize in creating high-quality ${service} solutions that are tailored to your specific needs — not cookie-cutter templates that look like everyone else's.
+
+What makes me different?
+✔ I focus on YOUR goals and business outcomes, not just the deliverable
+✔ Clean, professional work with attention to every detail
+✔ Fast turnaround without sacrificing quality
+✔ Clear communication throughout the entire process
+
+I've helped 100+ clients achieve their goals with ${service}, and I'm ready to do the same for you.
+
+Ready to get started? Order now or send me a message — I respond within 1 hour.
+
+---
+
+**PACKAGES**
+
+🟢 BASIC — Starter ($75 | 3 days delivery)
+• Core ${service} setup
+• Responsive & mobile-friendly
+• 2 rounds of revisions
+• Source files included
+• Basic documentation
+
+⭐ STANDARD — Professional ($200 | 5 days delivery) ← Most Popular
+• Everything in Basic
+• Premium design & advanced features
+• SEO/performance optimization
+• 4 rounds of revisions
+• Priority support
+• 30-day post-delivery support
+
+👑 PREMIUM — Enterprise ($450 | 7 days delivery)
+• Everything in Standard
+• Full custom solution from scratch
+• Advanced integrations
+• Unlimited revisions
+• Dedicated project manager
+• 60-day post-delivery support
+• Training & handover documentation
+
+---
+
+**TAGS**
+${service.split(' ').slice(0, 2).join(' ')}, professional design, custom solution, fast delivery, business
+
+---
+
+**FAQ**
+
+Q: Can you work with my existing project/files?
+A: Absolutely! Just share what you have and I'll integrate seamlessly with your current setup.
+
+Q: What if I need changes after delivery?
+A: All packages include revision rounds. Premium buyers also get 60 days of post-delivery support for any tweaks.
+
+Q: How do we get started?
+A: Send me a message with your requirements before ordering — I'll confirm I'm the right fit and give you a realistic timeline.`
+  },
+
+  linkedin: (prompt) => `I made a mistake that cost me 6 months of progress.
+
+Here's what I learned — so you don't have to repeat it:
+
+Most people approach ${prompt.split('\n')[0]?.replace('Topic: ', '').slice(0, 50)} the wrong way.
+
+They focus on the tactics.
+They copy what worked for someone else.
+They measure the wrong things.
+
+And then they wonder why they're not getting results.
+
+Here's what actually moves the needle:
+
+→ Start with a clear outcome, not an activity
+→ Build systems that compound over time
+→ Measure inputs, not just outputs
+→ Adjust early, not after months of wasted effort
+
+The people winning right now aren't smarter than you.
+
+They just stopped guessing and started executing with intention.
+
+I've seen this shift transform results for dozens of people in my network — and it can do the same for you.
+
+What's the one thing you wish you'd known earlier about ${prompt.split('\n')[0]?.replace('Topic: ', '').split(' ').slice(0, 4).join(' ')}?
+
+Drop it in the comments — let's build something valuable here. 👇
+
+---
+
+#Growth #Mindset #Strategy #Entrepreneurship #Leadership`,
 
   product: (prompt) => `## ${prompt.slice(0, 60)}
 

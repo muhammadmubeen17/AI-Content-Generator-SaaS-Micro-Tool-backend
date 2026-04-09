@@ -78,6 +78,18 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    isEmailVerified: {
+      type: Boolean,
+      default: false,
+    },
+    emailVerificationToken: {
+      type: String,
+      select: false,
+    },
+    emailVerificationExpires: {
+      type: Date,
+      select: false,
+    },
     lastLoginAt: {
       type: Date,
     },
@@ -150,6 +162,7 @@ userSchema.methods.toPublicJSON = function () {
     creditsResetAt: this.creditsResetAt,
     planExpiresAt: this.planExpiresAt,
     subscriptionStatus: this.subscriptionStatus,
+    isEmailVerified: this.isEmailVerified,
     createdAt: this.createdAt,
   }
 }
