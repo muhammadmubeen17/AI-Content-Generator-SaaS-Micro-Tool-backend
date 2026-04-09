@@ -3,6 +3,7 @@ const { sendTokenResponse } = require('../utils/jwt')
 const { sendSuccess } = require('../utils/response')
 const { createError, asyncHandler } = require('../utils/error')
 const { PLANS } = require('../config/constants')
+const { recordLedger } = require('../services/creditService')
 
 /**
  * POST /api/auth/register
@@ -15,6 +16,12 @@ const register = asyncHandler(async (req, res, next) => {
     return next(createError(409, 'An account with this email already exists'))
   }
 
+  // Calculate first reset date (1st of next month)
+  const nextReset = new Date()
+  nextReset.setMonth(nextReset.getMonth() + 1)
+  nextReset.setDate(1)
+  nextReset.setHours(0, 0, 0, 0)
+
   const user = await User.create({
     name,
     email,
@@ -22,6 +29,17 @@ const register = asyncHandler(async (req, res, next) => {
     plan: 'free',
     credits: PLANS.free.credits,
     totalCredits: PLANS.free.credits,
+    creditsResetAt: nextReset,
+  })
+
+  // Record initial free credits in the ledger
+  await recordLedger({
+    userId: user._id,
+    type: 'monthly_reset',
+    amount: PLANS.free.credits,
+    balanceAfter: PLANS.free.credits,
+    description: `Welcome! Free plan activated (+${PLANS.free.credits} credits)`,
+    metadata: { planId: 'free', event: 'registration' },
   })
 
   sendTokenResponse(user, 201, res, 'Account created successfully')

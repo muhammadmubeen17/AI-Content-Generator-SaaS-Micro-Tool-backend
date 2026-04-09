@@ -96,7 +96,7 @@ const applyPlan = async (userId, planId, subscriptionId = null) => {
   if (isUpgrade) {
     // UPGRADE: add plan credits to existing balance
     newCredits = previousCredits + plan.credits
-    newTotalCredits = plan.credits
+    newTotalCredits = newCredits
   } else if (isDowngrade) {
     // DOWNGRADE: cap credits at new plan's max
     newCredits = Math.min(previousCredits, plan.credits)

@@ -7,6 +7,7 @@ const connectDB = require('./config/db')
 const { generalLimiter } = require('./middleware/rateLimiter')
 const { errorHandler, notFound } = require('./middleware/errorHandler')
 const { handleWebhook } = require('./controllers/billing.controller')
+const { startCreditResetCron } = require('./jobs/creditResetCron')
 
 // ─── Import routes ────────────────────────────────────────────────────────────
 const authRoutes = require('./routes/auth.routes')
@@ -98,6 +99,9 @@ const server = app.listen(PORT, () => {
   console.log(`\n🚀 Server running in ${process.env.NODE_ENV} mode on port ${PORT}`)
   console.log(`📡 API available at: http://localhost:${PORT}/api`)
   console.log(`❤️  Health check: http://localhost:${PORT}/health\n`)
+
+  // Start cron jobs
+  startCreditResetCron()
 })
 
 // ─── Graceful shutdown ────────────────────────────────────────────────────────
