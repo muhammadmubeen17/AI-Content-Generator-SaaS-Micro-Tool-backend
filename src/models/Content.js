@@ -75,15 +75,13 @@ contentSchema.index({ userId: 1, type: 1 })
 contentSchema.index({ createdAt: -1 })
 
 // ---------- Pre-save ----------
-contentSchema.pre('save', function (next) {
+contentSchema.pre('save', async function () {
   if (this.isModified('output') && this.output) {
     this.wordCount = this.output.split(/\s+/).filter(Boolean).length
-    // Auto-generate title from prompt if not provided
     if (!this.title && this.prompt) {
       this.title = this.prompt.slice(0, 80) + (this.prompt.length > 80 ? '...' : '')
     }
   }
-  next()
 })
 
 // ---------- Statics ----------
