@@ -44,6 +44,11 @@ const userSchema = new mongoose.Schema(
       type: Number,
       default: PLANS.free.credits,
     },
+    paidCredits: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     subscriptionId: {
       type: String,
       default: null,
@@ -111,12 +116,23 @@ userSchema.methods.comparePassword = async function (candidatePassword) {
 }
 
 userSchema.methods.hasEnoughCredits = function (cost) {
-  return this.credits >= cost
+  return (this.credits + this.paidCredits) >= cost
 }
 
 userSchema.methods.deductCredits = async function (cost) {
-  if (this.credits < cost) throw new Error('Insufficient credits')
-  this.credits -= cost
+  let remaining = cost
+  if (this.credits >= remaining) {
+    this.credits -= remaining
+    remaining = 0
+  } else {
+    remaining -= this.credits
+    this.credits = 0
+  }
+
+  if (remaining > 0) {
+    if (this.paidCredits < remaining) throw new Error('Insufficient credits')
+    this.paidCredits -= remaining
+  }
   return this.save()
 }
 
@@ -129,6 +145,7 @@ userSchema.methods.toPublicJSON = function () {
     plan: this.plan,
     credits: this.credits,
     totalCredits: this.totalCredits,
+    paidCredits: this.paidCredits,
     creditsUsed: this.creditsUsed,
     creditsResetAt: this.creditsResetAt,
     planExpiresAt: this.planExpiresAt,

@@ -20,29 +20,25 @@ const recordLedger = async ({ userId, type, amount, balanceAfter, description, m
 
 // ─── Credit mutations ───────────────────────────────────────────────────────────
 
-/**
- * Deduct credits from a user atomically.
- * Uses findOneAndUpdate to prevent race conditions.
- */
 const deductCredits = async (userId, cost, meta = {}) => {
-  const user = await User.findOneAndUpdate(
-    { _id: userId, credits: { $gte: cost } },
-    { $inc: { credits: -cost } },
-    { new: true }
-  )
+  const user = await User.findById(userId)
+  if (!user) throw new Error('User not found')
 
-  if (!user) {
-    const existing = await User.findById(userId)
-    if (!existing) throw new Error('User not found')
-    throw new Error(`Insufficient credits. Required: ${cost}, Available: ${existing.credits}`)
+  if (!user.hasEnoughCredits(cost)) {
+    throw new Error(`Insufficient credits. Required: ${cost}, Available: Monthly (${user.credits}), Paid (${user.paidCredits})`)
   }
+
+  const previousCredits = user.credits
+  const previousPaid = user.paidCredits
+  
+  await user.deductCredits(cost)
 
   // Record ledger
   await recordLedger({
     userId,
     type: 'generation',
     amount: -cost,
-    balanceAfter: user.credits,
+    balanceAfter: user.credits + user.paidCredits,
     description: `Content generation (${meta.length || 'medium'} length)`,
     metadata: { contentId: meta.contentId, cost },
   })
@@ -56,7 +52,7 @@ const deductCredits = async (userId, cost, meta = {}) => {
 const addCredits = async (userId, amount) => {
   const user = await User.findByIdAndUpdate(
     userId,
-    { $inc: { credits: amount, totalCredits: amount } },
+    { $inc: { paidCredits: amount } },
     { new: true }
   )
   if (!user) throw new Error('User not found')
@@ -65,7 +61,7 @@ const addCredits = async (userId, amount) => {
     userId,
     type: 'admin_add',
     amount,
-    balanceAfter: user.credits,
+    balanceAfter: user.credits + user.paidCredits,
     description: `Admin added ${amount} credits`,
     metadata: { adminAdd: true },
   })
@@ -75,8 +71,8 @@ const addCredits = async (userId, amount) => {
 
 /**
  * Apply a new plan to the user.
- * - UPGRADE: accumulates credits (existing + plan bonus)
- * - DOWNGRADE: caps credits at new plan's allocation
+ * - UPGRADE or DOWNGRADE: purely resets the monthly credits to the new plan's allocation.
+ * Paid credits remain untouched!
  */
 const applyPlan = async (userId, planId, subscriptionId = null) => {
   const plan = PLANS[planId]
@@ -90,22 +86,8 @@ const applyPlan = async (userId, planId, subscriptionId = null) => {
   const isUpgrade = getPlanRank(planId) > getPlanRank(previousPlan)
   const isDowngrade = getPlanRank(planId) < getPlanRank(previousPlan)
 
-  let newCredits
-  let newTotalCredits
-
-  if (isUpgrade) {
-    // UPGRADE: add plan credits to existing balance
-    newCredits = previousCredits + plan.credits
-    newTotalCredits = newCredits
-  } else if (isDowngrade) {
-    // DOWNGRADE: cap credits at new plan's max
-    newCredits = Math.min(previousCredits, plan.credits)
-    newTotalCredits = plan.credits
-  } else {
-    // Same plan renewal
-    newCredits = plan.credits
-    newTotalCredits = plan.credits
-  }
+  const newCredits = plan.credits
+  const newTotalCredits = plan.credits
 
   const updateData = {
     plan: planId,
@@ -132,11 +114,11 @@ const applyPlan = async (userId, planId, subscriptionId = null) => {
     userId,
     type: isUpgrade ? 'plan_upgrade' : isDowngrade ? 'plan_downgrade' : 'monthly_reset',
     amount: creditDelta,
-    balanceAfter: newCredits,
+    balanceAfter: newCredits + currentUser.paidCredits,
     description: isUpgrade
-      ? `Upgraded from ${previousPlan} to ${planId} (+${plan.credits} credits)`
+      ? `Upgraded from ${previousPlan} to ${planId} (Reset to ${plan.credits} limits)`
       : isDowngrade
-        ? `Downgraded from ${previousPlan} to ${planId} (capped at ${plan.credits})`
+        ? `Downgraded from ${previousPlan} to ${planId} (Reset to ${plan.credits} limits)`
         : `Plan renewed (${planId})`,
     metadata: { planFrom: previousPlan, planTo: planId, previousCredits },
   })
@@ -153,7 +135,7 @@ const purchaseTopUp = async (userId, packId) => {
 
   const user = await User.findByIdAndUpdate(
     userId,
-    { $inc: { credits: pack.credits, totalCredits: pack.credits } },
+    { $inc: { paidCredits: pack.credits } },
     { new: true }
   )
   if (!user) throw new Error('User not found')
@@ -162,7 +144,7 @@ const purchaseTopUp = async (userId, packId) => {
     userId,
     type: 'top_up',
     amount: pack.credits,
-    balanceAfter: user.credits,
+    balanceAfter: user.credits + user.paidCredits,
     description: `Purchased ${pack.name} (+${pack.credits} credits)`,
     metadata: { packId, packName: pack.name, price: pack.price },
   })
@@ -189,7 +171,7 @@ const resetMonthlyCredits = async (userId) => {
     userId,
     type: 'monthly_reset',
     amount: plan.credits - previousCredits,
-    balanceAfter: plan.credits,
+    balanceAfter: plan.credits + user.paidCredits,
     description: `Monthly credits reset for ${user.plan} plan`,
     metadata: { planId: user.plan, previousCredits },
   })
