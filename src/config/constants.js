@@ -17,7 +17,7 @@ const CREDIT_COSTS = {
   long: parseInt(process.env.COST_LONG) || 4,
 }
 
-const CONTENT_TYPES = ['blog', 'ad_copy', 'proposal', 'email', 'social', 'product']
+const CONTENT_TYPES = ['blog', 'ad_copy', 'proposal', 'email', 'social', 'product', 'youtube', 'upwork', 'fiverr_gig', 'linkedin']
 const TONES = ['professional', 'casual', 'persuasive', 'informative', 'humorous', 'formal']
 const LENGTHS = ['short', 'medium', 'long']
 const ROLES = ['user', 'admin']
