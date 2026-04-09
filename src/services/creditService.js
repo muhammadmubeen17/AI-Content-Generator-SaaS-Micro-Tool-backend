@@ -206,9 +206,7 @@ const getPlanRank = (planId) => {
 
 const getNextResetDate = () => {
   const d = new Date()
-  d.setMonth(d.getMonth() + 1)
-  d.setDate(1)
-  d.setHours(0, 0, 0, 0)
+  d.setDate(d.getDate() + 30)
   return d
 }
 

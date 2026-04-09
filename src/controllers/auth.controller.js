@@ -16,11 +16,9 @@ const register = asyncHandler(async (req, res, next) => {
     return next(createError(409, 'An account with this email already exists'))
   }
 
-  // Calculate first reset date (1st of next month)
+  // Calculate first reset date (30 days from now)
   const nextReset = new Date()
-  nextReset.setMonth(nextReset.getMonth() + 1)
-  nextReset.setDate(1)
-  nextReset.setHours(0, 0, 0, 0)
+  nextReset.setDate(nextReset.getDate() + 30)
 
   const user = await User.create({
     name,
