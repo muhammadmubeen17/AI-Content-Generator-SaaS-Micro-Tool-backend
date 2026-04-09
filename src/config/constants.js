@@ -27,6 +27,30 @@ const TONES = ['professional', 'casual', 'persuasive', 'informative', 'humorous'
 const LENGTHS = ['short', 'medium', 'long']
 const ROLES = ['user', 'admin']
 
+const CREDIT_PACKS = {
+  small: {
+    id: 'small',
+    name: '50 Credits',
+    credits: 50,
+    price: 5,
+    stripePriceId: process.env.STRIPE_PRICE_CREDITS_SMALL,
+  },
+  medium: {
+    id: 'medium',
+    name: '150 Credits',
+    credits: 150,
+    price: 12,
+    stripePriceId: process.env.STRIPE_PRICE_CREDITS_MEDIUM,
+  },
+  large: {
+    id: 'large',
+    name: '500 Credits',
+    credits: 500,
+    price: 35,
+    stripePriceId: process.env.STRIPE_PRICE_CREDITS_LARGE,
+  },
+}
+
 // Approximate token counts for billing/tracking
 const LENGTH_TOKENS = {
   short: 200,
@@ -34,4 +58,4 @@ const LENGTH_TOKENS = {
   long: 1000,
 }
 
-module.exports = { PLANS, CREDIT_COSTS, CONTENT_TYPES, TONES, LENGTHS, ROLES, LENGTH_TOKENS }
+module.exports = { PLANS, CREDIT_COSTS, CREDIT_PACKS, CONTENT_TYPES, TONES, LENGTHS, ROLES, LENGTH_TOKENS }

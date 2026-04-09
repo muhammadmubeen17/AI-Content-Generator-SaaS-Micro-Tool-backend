@@ -1,5 +1,5 @@
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY)
-const { PLANS } = require('../config/constants')
+const { PLANS, CREDIT_PACKS } = require('../config/constants')
 
 // Map plan ID to Stripe price ID
 const PRICE_MAP = {
@@ -66,6 +66,40 @@ const createCheckoutSession = async ({ user, planId, successUrl, cancelUrl }) =>
 }
 
 /**
+ * Create a Stripe Checkout session for a one-time credit pack purchase
+ */
+const createCreditPackCheckout = async ({ user, packId, successUrl, cancelUrl }) => {
+  const pack = CREDIT_PACKS[packId]
+  if (!pack || !pack.stripePriceId) {
+    throw new Error(`No Stripe price configured for credit pack: ${packId}`)
+  }
+
+  const customer = await getOrCreateCustomer(user)
+
+  const session = await stripe.checkout.sessions.create({
+    customer: customer.id,
+    payment_method_types: ['card'],
+    mode: 'payment',
+    line_items: [
+      {
+        price: pack.stripePriceId,
+        quantity: 1,
+      },
+    ],
+    success_url: successUrl || `${process.env.FRONTEND_URL}/billing?credits_success=true&session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: cancelUrl || `${process.env.FRONTEND_URL}/billing?cancelled=true`,
+    metadata: {
+      userId: user._id.toString(),
+      packId,
+      type: 'credit_pack',
+    },
+    allow_promotion_codes: true,
+  })
+
+  return session
+}
+
+/**
  * Handle a Stripe webhook event
  */
 const constructWebhookEvent = (rawBody, signature) => {
@@ -96,6 +130,7 @@ module.exports = {
   stripe,
   getOrCreateCustomer,
   createCheckoutSession,
+  createCreditPackCheckout,
   constructWebhookEvent,
   retrieveSession,
   cancelSubscription,

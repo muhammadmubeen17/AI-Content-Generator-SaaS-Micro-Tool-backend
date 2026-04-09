@@ -126,6 +126,7 @@ userSchema.methods.toPublicJSON = function () {
     credits: this.credits,
     totalCredits: this.totalCredits,
     creditsUsed: this.creditsUsed,
+    creditsResetAt: this.creditsResetAt,
     subscriptionStatus: this.subscriptionStatus,
     createdAt: this.createdAt,
   }

@@ -1,10 +1,11 @@
 const Transaction = require('../models/Transaction')
+const CreditLedger = require('../models/CreditLedger')
 const User = require('../models/User')
-const { createCheckoutSession, constructWebhookEvent } = require('../services/stripeService')
-const { applyPlan } = require('../services/creditService')
+const { createCheckoutSession, createCreditPackCheckout, constructWebhookEvent, cancelSubscription } = require('../services/stripeService')
+const { applyPlan, purchaseTopUp } = require('../services/creditService')
 const { sendSuccess } = require('../utils/response')
 const { createError, asyncHandler } = require('../utils/error')
-const { PLANS } = require('../config/constants')
+const { PLANS, CREDIT_PACKS } = require('../config/constants')
 
 /**
  * POST /api/billing/create-checkout-session
@@ -17,7 +18,7 @@ const createSession = asyncHandler(async (req, res, next) => {
   }
 
   if (planId === 'free') {
-    return next(createError(400, 'Cannot checkout for the free plan'))
+    return next(createError(400, 'Cannot checkout for the free plan. Use the downgrade endpoint.'))
   }
 
   if (req.user.plan === planId) {
@@ -30,7 +31,9 @@ const createSession = asyncHandler(async (req, res, next) => {
     amount: PLANS[planId].price,
     plan: planId,
     previousPlan: req.user.plan,
+    creditsAdded: PLANS[planId].credits,
     status: 'pending',
+    type: 'subscription',
   })
 
   let session
@@ -52,11 +55,25 @@ const createSession = asyncHandler(async (req, res, next) => {
     // Provide useful error in dev (Stripe not configured)
     if (err.message.includes('No Stripe price configured') || err.message.includes('Invalid API Key')) {
       // Simulate success in dev/mock mode
-      await applyPlan(req.user._id, planId)
+      const updatedUser = await applyPlan(req.user._id, planId)
+
+      // Record a completed mock transaction
+      await Transaction.create({
+        userId: req.user._id,
+        amount: PLANS[planId].price,
+        plan: planId,
+        previousPlan: req.user.plan,
+        creditsAdded: PLANS[planId].credits,
+        status: 'completed',
+        type: 'subscription',
+        metadata: { mock: true },
+      })
+
       return sendSuccess(res, {
         mock: true,
-        message: `[DEV MODE] Plan upgraded to ${planId} without Stripe. Configure STRIPE_SECRET_KEY to enable real payments.`,
+        message: `[DEV MODE] Plan upgraded to ${planId}. Credits accumulated properly.`,
         url: `${process.env.FRONTEND_URL}/billing?success=true`,
+        user: updatedUser.toPublicJSON(),
       }, 'Mock checkout complete')
     }
 
@@ -64,6 +81,145 @@ const createSession = asyncHandler(async (req, res, next) => {
   }
 
   sendSuccess(res, { url: session.url, sessionId: session.id }, 'Checkout session created')
+})
+
+/**
+ * POST /api/billing/downgrade
+ * Downgrade from a paid plan to free
+ */
+const downgrade = asyncHandler(async (req, res, next) => {
+  const user = await User.findById(req.user._id)
+  if (!user) return next(createError(404, 'User not found'))
+
+  if (user.plan === 'free') {
+    return next(createError(400, 'You are already on the free plan'))
+  }
+
+  const previousPlan = user.plan
+  const previousCredits = user.credits
+
+  // Cancel Stripe subscription if exists
+  if (user.subscriptionId) {
+    try {
+      await cancelSubscription(user.subscriptionId)
+    } catch (err) {
+      console.log(`[Downgrade] Stripe cancel skipped: ${err.message}`)
+    }
+  }
+
+  // Apply free plan (credits will be capped)
+  const updatedUser = await applyPlan(user._id, 'free')
+
+  // Record downgrade transaction
+  await Transaction.create({
+    userId: user._id,
+    amount: 0,
+    plan: 'free',
+    previousPlan,
+    creditsAdded: 0,
+    status: 'completed',
+    type: 'subscription',
+    metadata: {
+      action: 'downgrade',
+      previousCredits,
+      newCredits: updatedUser.credits,
+    },
+  })
+
+  sendSuccess(res, {
+    user: updatedUser.toPublicJSON(),
+    message: `Downgraded from ${previousPlan} to free. Credits capped at ${updatedUser.credits}.`,
+  }, 'Plan downgraded')
+})
+
+/**
+ * POST /api/billing/purchase-credits
+ * Buy a credit top-up pack via Stripe checkout (or mock in dev)
+ */
+const purchaseCredits = asyncHandler(async (req, res, next) => {
+  const { packId } = req.body
+
+  if (!packId || !CREDIT_PACKS[packId]) {
+    return next(createError(400, `Invalid pack. Must be one of: ${Object.keys(CREDIT_PACKS).join(', ')}`))
+  }
+
+  const pack = CREDIT_PACKS[packId]
+
+  // Create a pending transaction
+  const transaction = await Transaction.create({
+    userId: req.user._id,
+    amount: pack.price,
+    plan: req.user.plan,
+    creditsAdded: pack.credits,
+    status: 'pending',
+    type: 'top_up',
+    metadata: { packId, packName: pack.name },
+  })
+
+  let session
+  try {
+    session = await createCreditPackCheckout({
+      user: req.user,
+      packId,
+      successUrl: `${process.env.FRONTEND_URL}/billing?credits_success=true&session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl: `${process.env.FRONTEND_URL}/billing?cancelled=true`,
+    })
+
+    transaction.stripeSessionId = session.id
+    await transaction.save()
+  } catch (err) {
+    await transaction.deleteOne()
+
+    // Dev mock mode — Stripe not configured
+    if (err.message.includes('No Stripe price configured') || err.message.includes('Invalid API Key')) {
+      const updatedUser = await purchaseTopUp(req.user._id, packId)
+
+      await Transaction.create({
+        userId: req.user._id,
+        amount: pack.price,
+        plan: req.user.plan,
+        creditsAdded: pack.credits,
+        status: 'completed',
+        type: 'top_up',
+        metadata: { packId, packName: pack.name, mock: true },
+      })
+
+      return sendSuccess(res, {
+        mock: true,
+        user: updatedUser.toPublicJSON(),
+        creditsAdded: pack.credits,
+        message: `[DEV MODE] ${pack.name} purchased! +${pack.credits} credits added.`,
+      }, 'Mock credit purchase complete')
+    }
+
+    return next(createError(500, `Payment session error: ${err.message}`))
+  }
+
+  sendSuccess(res, { url: session.url, sessionId: session.id }, 'Checkout session created')
+})
+
+/**
+ * GET /api/billing/credit-history
+ * Paginated credit ledger entries
+ */
+const getCreditHistory = asyncHandler(async (req, res) => {
+  const page = parseInt(req.query.page) || 1
+  const limit = parseInt(req.query.limit) || 15
+  const skip = (page - 1) * limit
+
+  const [entries, total] = await Promise.all([
+    CreditLedger.find({ userId: req.user._id })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    CreditLedger.countDocuments({ userId: req.user._id }),
+  ])
+
+  sendSuccess(res, {
+    entries,
+    pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+  }, 'Credit history retrieved')
 })
 
 /**
@@ -121,13 +277,35 @@ const handleWebhook = async (req, res) => {
 // ─── Webhook handlers ─────────────────────────────────────────────────────────
 
 const handleCheckoutCompleted = async (session) => {
-  const { userId, planId } = session.metadata || {}
-  if (!userId || !planId) return
+  const metadata = session.metadata || {}
+  const { userId } = metadata
+  if (!userId) return
 
-  // Upgrade user plan and credits
+  // ── Credit pack one-time purchase ──
+  if (metadata.type === 'credit_pack') {
+    const { packId } = metadata
+    if (!packId) return
+
+    await purchaseTopUp(userId, packId)
+
+    await Transaction.findOneAndUpdate(
+      { stripeSessionId: session.id },
+      {
+        status: 'completed',
+        stripePaymentIntentId: session.payment_intent,
+      }
+    )
+
+    console.log(`✅ Credit pack purchased: user=${userId} pack=${packId}`)
+    return
+  }
+
+  // ── Subscription upgrade ──
+  const { planId } = metadata
+  if (!planId) return
+
   await applyPlan(userId, planId, session.subscription)
 
-  // Mark transaction as completed
   await Transaction.findOneAndUpdate(
     { stripeSessionId: session.id },
     {
@@ -149,11 +327,8 @@ const handleInvoicePaymentSucceeded = async (invoice) => {
   if (!user) return
 
   // Renew credits on successful renewal
-  const plan = PLANS[user.plan] || PLANS.free
-  user.credits = plan.credits
-  user.totalCredits = plan.credits
-  user.subscriptionStatus = 'active'
-  await user.save()
+  const { resetMonthlyCredits } = require('../services/creditService')
+  await resetMonthlyCredits(user._id)
 
   console.log(`🔄 Credits renewed for user: ${user.email}`)
 }
@@ -171,16 +346,11 @@ const handlePaymentFailed = async (invoice) => {
 }
 
 const handleSubscriptionCancelled = async (subscription) => {
-  await User.findOneAndUpdate(
-    { subscriptionId: subscription.id },
-    {
-      plan: 'free',
-      subscriptionStatus: 'cancelled',
-      subscriptionId: null,
-      credits: PLANS.free.credits,
-      totalCredits: PLANS.free.credits,
-    }
-  )
+  const user = await User.findOne({ subscriptionId: subscription.id })
+  if (!user) return
+
+  // Use applyPlan to properly downgrade with ledger
+  await applyPlan(user._id, 'free')
 
   console.log(`❌ Subscription cancelled: ${subscription.id}`)
 }
@@ -197,4 +367,11 @@ const getTransactions = asyncHandler(async (req, res) => {
   sendSuccess(res, { transactions }, 'Transactions retrieved')
 })
 
-module.exports = { createSession, handleWebhook, getTransactions }
+module.exports = {
+  createSession,
+  downgrade,
+  purchaseCredits,
+  getCreditHistory,
+  handleWebhook,
+  getTransactions,
+}
